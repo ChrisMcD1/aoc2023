@@ -1,14 +1,29 @@
 use itertools::Itertools;
-use std::{convert::Infallible, str::FromStr};
+use std::{convert::Infallible, fmt::Debug, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq)]
-struct Position {
-    x: f64,
-    y: f64,
-    z: f64,
+struct Position<T> {
+    x: T,
+    y: T,
+    z: T,
 }
 
-impl FromStr for Position {
+impl Position<i64> {
+    fn cross_product(&self, other: &Position<i64>) -> Position<i64> {
+        Position {
+            x: self.y * other.z - self.z * other.y,
+            y: self.z * other.x - self.x * other.z,
+            z: self.x * other.y - self.y * other.x,
+        }
+    }
+    fn plane_intersection(&self, line: Position<i64>) -> Position<i64> {}
+}
+
+impl<T> FromStr for Position<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: Debug,
+{
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -21,13 +36,17 @@ impl FromStr for Position {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Velocity {
-    x: f64,
-    y: f64,
-    z: f64,
+struct Velocity<T> {
+    x: T,
+    y: T,
+    z: T,
 }
 
-impl FromStr for Velocity {
+impl<T> FromStr for Velocity<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: Debug,
+{
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -40,36 +59,71 @@ impl FromStr for Velocity {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Hailstone {
-    position: Position,
-    velocity: Velocity,
+struct Hailstone<T> {
+    position: Position<T>,
+    velocity: Velocity<T>,
 }
 
-impl FromStr for Hailstone {
+impl<T> FromStr for Hailstone<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: Debug,
+{
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (position_string, velocity_string) = s.split_once("@").unwrap();
-        let position: Position = position_string.parse()?;
-        let velocity: Velocity = velocity_string.parse()?;
+        let position: Position<T> = position_string.parse()?;
+        let velocity: Velocity<T> = velocity_string.parse()?;
         Ok(Self { position, velocity })
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum HailstoneCollision {
-    Past(Position),
-    Future(Position),
+enum HailstoneCollision<T> {
+    Past(Position<T>),
+    Future(Position<T>),
     NoCollision,
 }
 
-struct SlopeIntercept {
-    slope: f64,
-    intercept: f64,
+struct SlopeIntercept<T> {
+    slope: T,
+    intercept: T,
 }
 
-impl Hailstone {
-    fn slope_intercept_form(&self) -> SlopeIntercept {
+impl Hailstone<i64> {
+    fn shift_relative_to(&self, other: &Hailstone<i64>) -> Hailstone<i64> {
+        let new_x_position = self.position.x - other.position.x;
+        let new_y_position = self.position.y - other.position.y;
+        let new_z_position = self.position.z - other.position.z;
+
+        let new_x_velocity = self.velocity.x - other.velocity.x;
+        let new_y_velocity = self.velocity.y - other.velocity.y;
+        let new_z_velocity = self.velocity.z - other.velocity.z;
+        Hailstone {
+            position: Position {
+                x: new_x_position,
+                y: new_y_position,
+                z: new_z_position,
+            },
+            velocity: Velocity {
+                x: new_x_velocity,
+                y: new_y_velocity,
+                z: new_z_velocity,
+            },
+        }
+    }
+    fn at_time(&self, time: i64) -> Position<i64> {
+        Position {
+            x: self.position.x + self.velocity.x * time,
+            y: self.position.y + self.velocity.y * time,
+            z: self.position.z + self.velocity.z * time,
+        }
+    }
+}
+
+impl Hailstone<f64> {
+    fn slope_intercept_form(&self) -> SlopeIntercept<f64> {
         // We have x, y, position and velocity
         // (y - y1) = M(x - x1)
         let slope = self.velocity.y / self.velocity.x;
@@ -77,14 +131,14 @@ impl Hailstone {
         SlopeIntercept { slope, intercept }
     }
 
-    fn time_on_path_x_y(&self, position: &Position) -> f64 {
+    fn time_on_path_x_y(&self, position: &Position<f64>) -> f64 {
         // let real_x = vectorX * time + positionX
         // time = (realX - positionX)/vectorX
         let time = (position.x - self.position.x) / self.velocity.x;
         time
     }
 
-    fn intersection_point_x_y(&self, other: &Hailstone) -> HailstoneCollision {
+    fn intersection_point_x_y(&self, other: &Hailstone<f64>) -> HailstoneCollision<f64> {
         let us = self.slope_intercept_form();
         let them = other.slope_intercept_form();
         let a = us.slope;
@@ -121,7 +175,7 @@ impl Range {
 }
 
 pub fn part1(s: &str, range: &Range) -> u64 {
-    let hailstones: Vec<Hailstone> = s.lines().map(|line| line.parse().unwrap()).collect();
+    let hailstones: Vec<Hailstone<f64>> = s.lines().map(|line| line.parse().unwrap()).collect();
     let future_path_intersections = hailstones
         .iter()
         .tuple_combinations()
@@ -141,6 +195,15 @@ pub fn part1(s: &str, range: &Range) -> u64 {
 }
 
 pub fn part2(s: &str) -> u64 {
+    let hailstones: Vec<Hailstone<i64>> = s.lines().map(|line| line.parse().unwrap()).collect();
+    let reference = &hailstones[0];
+    let plane_definer = hailstones[1].shift_relative_to(reference);
+    let plane_point_1 = plane_definer.at_time(0);
+    let plane_point_2 = plane_definer.at_time(1);
+    let plane_normal = plane_point_1.cross_product(&plane_point_2);
+
+    let intersection_1 = hailstones[2].shift_relative_to(reference);
+    let intersection_2 = hailstones[3].shift_relative_to(reference);
     0
 }
 
